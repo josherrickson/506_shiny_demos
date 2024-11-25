@@ -27,7 +27,6 @@ ui <- fluidPage(
                    choices = list("Benjamini-Hochberg" = "hoch",
                                   "Benjamini-Yekutieli" = "yeku"),
                    inline = TRUE),
-      actionButton("update", "Submit"),
       br(),
       br(),
       p("By checking the box below, the output will be sorted by
@@ -74,9 +73,7 @@ ui <- fluidPage(
 
 server <- function(input, output) {
 
-  out_update <- eventReactive(input$update, {
-
-    req(input$alpha)
+  process_pvalues <- reactive({
     pv <- input$pvalues
     if (pv == "") {
       return(data.frame(pv = numeric(),
@@ -85,9 +82,10 @@ server <- function(input, output) {
                         critvals = numeric(),
                         signif = logical()))
     }
+
     pv <- as.numeric(strsplit(pv, split = ",[:blank:]*")[[1]])
     if (any(!is.na(pv) & pv <= 0) | any(!is.na(pv) & pv > 1)) {
-       pv[(pv >  0) & (pv <= 1)] <- NA
+      pv[(pv >  0) & (pv <= 1)] <- NA
     }
     pv <- pv[!is.na(pv)]
 
@@ -98,25 +96,23 @@ server <- function(input, output) {
     outtab <- outtab[order(outtab$pv), ]
     outtab$rank <- seq_len(m)
     outtab$critvals <- outtab$rank*input$alpha/m
+
     if (input$procedure == "yeku") {
       outtab$critvals <- outtab$critvals/(log(m) + -digamma(1) + 1/(2*m))
     }
+
     thresh <- max(which(outtab$pv < outtab$critvals))
     outtab$signif <- seq_len(nrow(outtab)) <= thresh
 
-    return(outtab)
-  }, ignoreNULL = FALSE)
-
-  out_reactive <- reactive({
-    outtab <- out_update()
     if (!input$sorted) {
       outtab <- outtab[order(outtab$row), ]
     }
+
     outtab[, names(outtab) != "row"]
   })
 
   output$result <- renderTable({
-    outtab <- out_reactive()
+    outtab <- process_pvalues()
 
     outtab <- cbind(seq_len(nrow(outtab)), outtab)
     outtab$signif <- ifelse(outtab$signif, "Yes", "No")
@@ -129,7 +125,7 @@ server <- function(input, output) {
   align = "rcrcl")
 
   output$plot <- renderPlot({
-    outtab <- out_reactive()
+    outtab <- process_pvalues()
 
     outtab$rows <- seq_len(nrow(outtab))
     ggplot(outtab, aes(x = rows)) +
